@@ -22,3 +22,18 @@ Sounds
 
 Fonts
 - .ttf
+
+- [ ] It must preserve subfolder hierarchy
+E.g:
+Project at root has files like this
+- assets
+    - images
+        - .png
+        - .jpg
+    - 3d_models
+        - .blend
+        - .blend1
+        - .glb
+    - sounds
+        - .ogg
+
