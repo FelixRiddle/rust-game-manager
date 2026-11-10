@@ -1,11 +1,51 @@
 use anyhow::{Context, Result};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 /// List of supported file extensions to extract.
 const SUPPORTED_EXTENSIONS: &[&str] =
     &["png", "xcf", "jpg", "blend", "blend1", "glb", "ogg", "ttf"];
+
+/// Compares two files chunk-by-chunk to determine if they have identical contents.
+///
+/// # Arguments
+/// * `path1` - Path to the first file.
+/// * `path2` - Path to the second file.
+pub fn files_are_identical(path1: &Path, path2: &Path) -> Result<bool> {
+    let meta1 = fs::metadata(path1)?;
+    let meta2 = fs::metadata(path2)?;
+
+    // If file sizes differ, they cannot be identical
+    if meta1.len() != meta2.len() {
+        return Ok(false);
+    }
+
+    let f1 = File::open(path1)?;
+    let f2 = File::open(path2)?;
+
+    let mut reader1 = BufReader::new(f1);
+    let mut reader2 = BufReader::new(f2);
+
+    let mut buf1 = [0u8; 8192];
+    let mut buf2 = [0u8; 8192];
+
+    loop {
+        let n1 = reader1.read(&mut buf1)?;
+        let n2 = reader2.read(&mut buf2)?;
+
+        if n1 != n2 || buf1[..n1] != buf2[..n2] {
+            return Ok(false);
+        }
+
+        if n1 == 0 {
+            break;
+        }
+    }
+
+    Ok(true)
+}
 
 /// Validates that the provided source path exists and is a directory.
 ///
@@ -98,10 +138,11 @@ pub fn transform_path_to_snake_case(relative_path: &Path) -> PathBuf {
 }
 
 /// Recursively scans the source directory, filters by supported extensions,
-/// converts path components to snake_case, handles collisions, and copies files.
-pub fn process_assets(source: &PathBuf, destination: &PathBuf) -> Result<(usize, usize)> {
+/// converts path components to snake_case, deduplicates identical files, and handles collisions.
+pub fn process_assets(source: &PathBuf, destination: &PathBuf) -> Result<(usize, usize, usize)> {
     let mut copied_count = 0;
     let mut collision_count = 0;
+    let mut duplicate_count = 0;
 
     for entry in WalkDir::new(source).into_iter().filter_map(Result::ok) {
         let path = entry.path();
@@ -113,14 +154,25 @@ pub fn process_assets(source: &PathBuf, destination: &PathBuf) -> Result<(usize,
                         .strip_prefix(source)
                         .context("Failed to strip prefix from source path")?;
 
-                    // Apply snake_case transformation to directories and filenames
                     let snake_relative_path = transform_path_to_snake_case(relative_path);
                     let target_path = destination.join(&snake_relative_path);
 
-                    // Check for collisions on the transformed path
                     if target_path.exists() {
-                        println!("[COLLISION] File already exists: {:?}", target_path);
-                        collision_count += 1;
+                        // Check if the existing file is an exact duplicate (same content)
+                        if files_are_identical(path, &target_path)? {
+                            println!(
+                                "[DUPLICATE] Skipping identical file: {:?}",
+                                snake_relative_path
+                            );
+                            duplicate_count += 1;
+                            continue;
+                        } else {
+                            println!(
+                                "[COLLISION] File exists with different content: {:?}",
+                                snake_relative_path
+                            );
+                            collision_count += 1;
+                        }
                     }
 
                     if let Some(parent) = target_path.parent() {
@@ -140,5 +192,5 @@ pub fn process_assets(source: &PathBuf, destination: &PathBuf) -> Result<(usize,
         }
     }
 
-    Ok((copied_count, collision_count))
+    Ok((copied_count, collision_count, duplicate_count))
 }

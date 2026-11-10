@@ -46,12 +46,13 @@ fn main() -> Result<()> {
             println!("Scanning source: {:?}", source);
             println!("Target asset folder: {:?}", destination);
 
-            let (copied_count, collision_count) =
+            let (copied_count, collision_count, duplicate_count) =
                 extract_game_assets::process_assets(&source, &destination)?;
 
             println!("\nExtraction complete!");
             println!("- Files copied: {}", copied_count);
             println!("- Collisions detected: {}", collision_count);
+            println!("- Duplicated files detected: {}", duplicate_count);
         }
     }
 
